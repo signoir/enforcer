@@ -76,13 +76,26 @@ function validate(value, validations) {
         }
         break;
       case 'required':
-        if (value.length === 0) {
+        if (validationValue === true && value.length === 0) {
           errors.push({ id: 'content-manager.error.validation.required' });
         }
         break;
       case 'regex':
         if (!new RegExp(validationValue).test(value)) {
           errors.push({ id: 'content-manager.error.validation.regex' });
+        }
+        break;
+      case 'type':
+        if (validationValue === 'json') {
+          try {
+            if (isObject(value)) {
+              value = JSON.parse(JSON.stringify(value));
+            } else {
+              errors.push({ id: 'content-manager.error.validation.json' });
+            }
+          } catch(err) {
+            errors.push({ id: 'content-manager.error.validation.json' });
+          }
         }
         break;
       default:

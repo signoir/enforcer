@@ -1,45 +1,56 @@
-const _ = require('lodash');
-
 module.exports = async (ctx, next) => {
-  const route = ctx.request.route;
-  let role = '1';
+  let role;
 
   if (ctx.request && ctx.request.header && ctx.request.header.authorization) {
     try {
-      const tokenUser = await strapi.plugins['users-permissions'].services.jwt.getToken(ctx);
+      const { _id, id } = await strapi.plugins['users-permissions'].services.jwt.getToken(ctx);
 
-      ctx.state.user = await strapi.plugins['users-permissions'].services.user.fetch(_.pick(tokenUser, ['_id', 'id']));
+      if ((id || _id) === undefined) {
+        throw new Error('Invalid token: Token did not contain required fields');
+      }
 
+      ctx.state.user = await strapi.query('user', 'users-permissions').findOne({ _id, id });
     } catch (err) {
       return ctx.unauthorized(err);
     }
 
     if (!ctx.state.user) {
-      return ctx.unauthorized('This user doesn\'t exit.');
+      return ctx.unauthorized(`User Not Found.`);
     }
 
     role = ctx.state.user.role;
 
-    if (role.toString() === '0') {
+    if (role.type === 'root') {
       return await next();
     }
   }
+  // Retrieve `public` role.
+  if (!role) {
+    role = await strapi.query('role', 'users-permissions').findOne({ type: 'public' }, []);
+  }
 
-  const permission = _.get(strapi.plugins['users-permissions'].config, ['roles', role.toString(), 'permissions', route.plugin || 'application', 'controllers', route.controller, route.action]);
+  const route = ctx.request.route;
+  const permission = await strapi.query('permission', 'users-permissions').findOne({
+    role: role._id || role.id,
+    type: route.plugin || 'application',
+    controller: route.controller,
+    action: route.action,
+    enabled: true
+  }, []);
 
   if (!permission) {
-    return await next();
+    if (ctx.request.graphql === null) {
+      return ctx.request.graphql = strapi.errors.forbidden();
+    }
+
+    ctx.forbidden();
   }
 
-  if (permission.enabled && permission.policy) {
-    try {
-      await strapi.plugins['users-permissions'].config.policies[permission.policy](ctx, next);
-    } catch (err) {
-      ctx.unauthorized(err);
-    }
-  } else if (permission.enabled) {
-    await next();
-  } else {
-    ctx.unauthorized('Access restricted for this action.');
+  // Execute the policies.
+  if (permission.policy) {
+    return await strapi.plugins['users-permissions'].config.policies[permission.policy](ctx, next);
   }
+
+  // Execute the action.
+  await next();
 };

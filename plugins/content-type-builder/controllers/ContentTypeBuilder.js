@@ -1,7 +1,6 @@
 'use strict';
 
 const fs = require('fs');
-const path = require('path');
 const _ = require('lodash');
 
 const Service = require('../services/ContentTypeBuilder');
@@ -19,10 +18,10 @@ module.exports = {
 
     model = _.toLower(model);
 
-    if (!source && !_.get(strapi.models, model)) return ctx.badRequest(null, [{ messages: [{ id: 'request.error.model.unknow' }] }]);
+    if (!source && !_.get(strapi.models, model)) return ctx.badRequest(null, [{ messages: [{ id: 'request.error.model.unknown' }] }]);
 
     if (source && !_.get(strapi.plugins, [source, 'models', model])) {
-      return ctx.badRequest(null, [{ messages: [{ id: 'request.error.model.unknow' }] }]);
+      return ctx.badRequest(null, [{ messages: [{ id: 'request.error.model.unknown' }] }]);
     }
 
     ctx.send({ model: Service.getModel(model, source) });
@@ -47,6 +46,8 @@ module.exports = {
     }
 
     strapi.reload.isWatching = false;
+
+    await Service.appearance(formatedAttributes, name, 'content-manager');
 
     await Service.generateAPI(name, description, connection, collectionName, []);
 
@@ -85,15 +86,14 @@ module.exports = {
 
   updateModel: async ctx => {
     const { model } = ctx.params;
-    const { name, description, connection, collectionName, attributes = [], plugin } = ctx.request.body;
+    const { name, description, mainField, connection, collectionName, attributes = [], plugin } = ctx.request.body;
 
     if (!name) return ctx.badRequest(null, [{ messages: [{ id: 'request.error.name.missing' }] }]);
     if (!_.includes(Service.getConnections(), connection)) return ctx.badRequest(null, [{ messages: [{ id: 'request.error.connection.unknow' }] }]);
     if (strapi.models[_.toLower(name)] && name !== model) return ctx.badRequest(null, [{ messages: [{ id: 'request.error.model.exist' }] }]);
-    if (!strapi.models[_.toLower(model)]) return ctx.badRequest(null, [{ messages: [{ id: 'request.error.model.unknow' }] }]);
+    if (!strapi.models[_.toLower(model)] && plugin && !strapi.plugins[_.toLower(plugin)].models[_.toLower(model)]) return ctx.badRequest(null, [{ messages: [{ id: 'request.error.model.unknown' }] }]);
     if (!_.isNaN(parseFloat(name[0]))) return ctx.badRequest(null, [{ messages: [{ id: 'request.error.model.name' }] }]);
     if (plugin && !strapi.plugins[_.toLower(plugin)]) return ctx.badRequest(null, [{ message: [{ id: 'request.error.plugin.name' }] }]);
-    if (plugin && !strapi.plugins[_.toLower(plugin)].models[_.toLower(model)]) return ctx.badRequest(null, [{ message: [{ id: 'request.error.model.unknow' }] }]);
 
     const [formatedAttributes, attributesErrors] = Service.formatAttributes(attributes, name.toLowerCase(), plugin);
 
@@ -109,16 +109,22 @@ module.exports = {
       await Service.generateAPI(name, description, connection, collectionName, []);
     }
 
+    await Service.appearance(formatedAttributes, name, plugin ? plugin : 'content-manager');
+
     try {
       const modelJSON = _.cloneDeep(require(modelFilePath));
 
-      modelJSON.attributes = formatedAttributes;
+      modelJSON.connection = connection;
+      modelJSON.collectionName = collectionName;
       modelJSON.info = {
         name,
         description
       };
-      modelJSON.connection = connection;
-      modelJSON.collectionName = collectionName;
+      modelJSON.attributes = formatedAttributes;
+
+      if (mainField) {
+        modelJSON.info.mainField = mainField;
+      }
 
       const clearRelationsErrors = Service.clearRelations(model, plugin);
 
@@ -159,7 +165,7 @@ module.exports = {
   deleteModel: async ctx => {
     const { model } = ctx.params;
 
-    if (!_.get(strapi.models, model)) return ctx.badRequest(null, [{ messages: [{ id: 'request.error.model.unknow' }] }]);
+    if (!_.get(strapi.models, model)) return ctx.badRequest(null, [{ messages: [{ id: 'request.error.model.unknown' }] }]);
 
     strapi.reload.isWatching = false;
 
@@ -211,6 +217,6 @@ module.exports = {
       }
     }
 
-    ctx.send({ tableExists: true })
+    ctx.send({ tableExists: true });
   }
 };

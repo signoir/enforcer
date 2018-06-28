@@ -7,7 +7,12 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { FormattedMessage } from 'react-intl';
-import { map, size } from 'lodash';
+import { map, omitBy, size } from 'lodash';
+import cn from 'classnames';
+
+// Components from strapi-helper-plugin
+import LoadingBar from 'components/LoadingBar';
+import LoadingIndicator from 'components/LoadingIndicator';
 
 // Design
 import Button from 'components/Button';
@@ -48,12 +53,14 @@ const generateListTitle = (data, settingType) => {
   }
 };
 
-function List({ data, deleteActionSucceeded, deleteData, noButton, onButtonClick, settingType }) {
+function List({ data, deleteData, noButton, onButtonClick, settingType, showLoaders, values }) {
+  const object = omitBy(data, (v) => v.name === 'server'); // Remove the server key when displaying providers
+
   return (
     <div className={styles.list}>
       <div className={styles.flex}>
         <div className={styles.titleContainer}>
-          {generateListTitle(data, settingType)}
+          {showLoaders ? <LoadingBar style={{ marginTop: '0' }} /> : generateListTitle(data, settingType)}
         </div>
         <div className={styles.buttonContainer}>
           {noButton ? (
@@ -65,18 +72,20 @@ function List({ data, deleteActionSucceeded, deleteData, noButton, onButtonClick
           )}
         </div>
       </div>
-      <div className={styles.ulContainer}>
-        <ul className={noButton ? styles.listPadded : ''}>
-          {map(data, item => (
-            <ListRow
-              deleteActionSucceeded={deleteActionSucceeded}
-              deleteData={deleteData}
-              item={item}
-              key={item.name}
-              settingType={settingType}
-            />
-          ))}
-        </ul>
+      <div className={cn(styles.ulContainer, showLoaders && styles.loadingContainer, showLoaders && settingType === 'roles' && styles.loadingContainerRole )}>
+        {showLoaders ? <LoadingIndicator /> : (
+          <ul className={noButton ? styles.listPadded : ''}>
+            {map(object, item => (
+              <ListRow
+                deleteData={deleteData}
+                item={item}
+                key={item.name}
+                settingType={settingType}
+                values={values}
+              />
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
@@ -85,15 +94,17 @@ function List({ data, deleteActionSucceeded, deleteData, noButton, onButtonClick
 List.defaultProps = {
   noButton: false,
   onButtonClick: () => {},
+  showLoaders: true,
 };
 
 List.propTypes = {
   data: PropTypes.array.isRequired,
-  deleteActionSucceeded: PropTypes.bool.isRequired,
   deleteData: PropTypes.func.isRequired,
   noButton: PropTypes.bool,
   onButtonClick: PropTypes.func,
   settingType: PropTypes.string.isRequired,
+  showLoaders: PropTypes.bool,
+  values: PropTypes.object.isRequired,
 };
 
 export default List;

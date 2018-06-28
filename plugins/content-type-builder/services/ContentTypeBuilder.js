@@ -1,15 +1,43 @@
 'use strict';
 
-const path = require('path')
+const path = require('path');
 const fs = require('fs');
 const _ = require('lodash');
 const generator = require('strapi-generate');
 
 module.exports = {
+  appearance: (attributes, model, source) => {
+    const layoutPath = path.join(strapi.config.appPath, 'plugins', source, 'config', 'layout.json');
+    let layout;
+
+    try {
+      // NOTE: do we really need to parse the JSON?
+      // layout = JSON.parse(layoutPath, 'utf8');
+      layout = require(layoutPath);
+    } catch (err) {
+      layout = {};
+    }
+
+    Object.keys(attributes).map(attribute => {
+      const appearances = _.get(attributes, [attribute, 'appearance'], {});
+      Object.keys(appearances).map(appearance => {
+        _.set(layout, [model, 'attributes', attribute, 'appearance'], appearances[appearance] ? appearance : '' );
+      });
+
+      _.unset(attributes, [attribute, 'appearance']);
+    });
+
+    fs.writeFileSync(layoutPath, JSON.stringify(layout, null, 2), 'utf8');
+  },
+
   getModels: () => {
     const models = [];
 
     _.forEach(strapi.models, (model, name) => {
+      if (name === 'core_store') {
+        return true;
+      }
+
       models.push({
         icon: 'fa-cube',
         name: _.get(model, 'info.name', 'model.name.missing'),
@@ -20,6 +48,10 @@ module.exports = {
 
     const pluginModels = Object.keys(strapi.plugins).reduce((acc, current) => {
       _.forEach(strapi.plugins[current].models, (model, name) => {
+        if (name === 'file') {
+          return true;
+        }
+
         acc.push({
           icon: 'fa-cube',
           name: _.get(model, 'info.name', 'model.name.missing'),
@@ -40,22 +72,32 @@ module.exports = {
 
     const model = source ? _.get(strapi.plugins, [source, 'models', name]) : _.get(strapi.models, name);
 
-    // const model = _.get(strapi.models, name);
-
     const attributes = [];
-    _.forEach(model.attributes, (params, name) => {
-      const relation = _.find(model.associations, { alias: name });
+    _.forEach(model.attributes, (params, attr) => {
+      const relation = _.find(model.associations, { alias: attr });
 
-      if (relation) {
-        params = _.omit(params, ['collection', 'model', 'via']);
-        params.target = relation.model || relation.collection;
-        params.key = relation.via;
-        params.nature = relation.nature;
-        params.targetColumnName = _.get((params.plugin ? strapi.plugins[params.plugin].models : strapi.models )[params.target].attributes[params.key], 'columnName', '');
+      if (relation &&  !_.isArray(_.get(relation, relation.alias))) {
+        if (params.plugin === 'upload' && relation.model || relation.collection === 'file') {
+          params = {
+            type: 'media',
+            multiple: params.collection ? true : false
+          };
+        } else {
+          params = _.omit(params, ['collection', 'model', 'via']);
+          params.target = relation.model || relation.collection;
+          params.key = relation.via;
+          params.nature = relation.nature;
+          params.targetColumnName = _.get((params.plugin ? strapi.plugins[params.plugin].models : strapi.models )[params.target].attributes[params.key], 'columnName', '');
+        }
+      }
+
+      const appearance = _.get(strapi.plugins, [source || 'content-manager', 'config', 'layout', name, 'attributes', attr, 'appearance']);
+      if (appearance) {
+        _.set(params, ['appearance', appearance], true);
       }
 
       attributes.push({
-        name,
+        name: attr,
         params
       });
     });
@@ -63,13 +105,14 @@ module.exports = {
     return {
       name: _.get(model, 'info.name', 'model.name.missing'),
       description: _.get(model, 'info.description', 'model.description.missing'),
+      mainField: _.get(model, 'info.mainField', ''),
       connection: model.connection,
       collectionName: model.collectionName,
       attributes: attributes
     };
   },
 
-  getConnections: () => {
+  getConnections: () => {
     return _.keys(strapi.config.currentEnvironment.database.connections);
   },
 
@@ -79,11 +122,11 @@ module.exports = {
     return new Promise((resolve, reject) => {
       const scope = {
         generatorType: 'api',
-        id: name,
+        id: name.toLowerCase(),
         rootPath: strapi.config.appPath,
         args: {
           api: name,
-          description: _.replace(description, /\"/g, '\\"'),
+          description: _.replace(description, /\"/g, '\\"'), // eslint-disable-line no-useless-escape
           attributes,
           connection,
           collectionName: !_.isEmpty(collectionName) ? collectionName : undefined,
@@ -139,7 +182,17 @@ module.exports = {
 
     _.forEach(attributesConfigurable, attribute => {
       if (_.has(attribute, 'params.type')) {
-        attrs[attribute.name] = attribute.params;
+        attrs[attribute.name] = _.omit(attribute.params, 'multiple');
+
+        if (attribute.params.type === 'media') {
+          const via = _.findKey(strapi.plugins.upload.models.file.attributes, {collection: '*'});
+
+          attrs[attribute.name] = {
+            [attribute.params.multiple ? 'collection' : 'model']: 'file',
+            via,
+            plugin: 'upload'
+          };
+        }
       } else if (_.has(attribute, 'params.target')) {
         const relation = attribute.params;
         const attr = {
@@ -149,6 +202,7 @@ module.exports = {
         };
 
         switch (relation.nature) {
+          case 'oneWay':
           case 'oneToOne':
           case 'manyToOne':
             attr.model = relation.target;
@@ -160,9 +214,14 @@ module.exports = {
           default:
         }
 
-        attr.via = relation.key;
+        if(relation.nature !== 'oneWay') {
+          attr.via = relation.key;
+        }
         attr.dominant = relation.dominant;
-        attr.plugin = relation.pluginValue;
+
+        if (_.trim(relation.pluginValue)) {
+          attr.plugin = _.trim(relation.pluginValue);
+        }
 
         attrs[attribute.name] = attr;
       }
@@ -298,20 +357,32 @@ module.exports = {
             const attr = {};
 
             switch (params.nature) {
+              case 'oneWay':
+                return;
               case 'oneToOne':
               case 'oneToMany':
                 attr.model = model.toLowerCase();
                 break;
               case 'manyToOne':
-              case 'manyToMany':
                 attr.collection = model.toLowerCase();
                 break;
+              case 'manyToMany': {
+                attr.collection = model.toLowerCase();
+
+                if (!params.dominant) {
+                  attr.dominant = true;
+                }
+                break;
+              }
               default:
             }
 
             attr.via = name;
             attr.columnName = params.targetColumnName;
-            attr.plugin = source;
+
+            if (_.trim(source)) {
+              attr.plugin = _.trim(source);
+            }
 
             modelJSON.attributes[params.key] = attr;
 
@@ -394,7 +465,7 @@ module.exports = {
           }
         }
       }
-    }
+    };
 
     const recurciveDeleteFiles = folderPath => {
       try {
@@ -430,7 +501,7 @@ module.exports = {
           }
         });
       }
-    }
+    };
 
     recurciveDeleteFiles(apiPath);
 

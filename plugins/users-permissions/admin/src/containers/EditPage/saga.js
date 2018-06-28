@@ -8,6 +8,7 @@ import {
   take,
   takeLatest,
 } from 'redux-saga/effects';
+
 import request from 'utils/request';
 
 import {
@@ -104,7 +105,7 @@ export function* submit() {
       yield put(submitSucceeded());
     }
   } catch(error) {
-    console.log(error);
+    console.log(error); // eslint-disable-line no-console
   }
 }
 

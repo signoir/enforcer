@@ -2,6 +2,14 @@
   "routes": [
     {
       "method": "GET",
+      "path": "/layout",
+      "handler": "ContentManager.layout",
+      "config": {
+        "policies": []
+      }
+    },
+    {
+      "method": "GET",
       "path": "/models",
       "handler": "ContentManager.models",
       "config": {
@@ -43,6 +51,14 @@
       "method": "PUT",
       "path": "/explorer/:model/:id",
       "handler": "ContentManager.update",
+      "config": {
+        "policies": ["routing"]
+      }
+    },
+    {
+      "method": "DELETE",
+      "path": "/explorer/deleteAll/:model",
+      "handler": "ContentManager.deleteAll",
       "config": {
         "policies": ["routing"]
       }
