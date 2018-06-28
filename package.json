@@ -20,27 +20,27 @@
   },
   "dependencies": {
     "lodash": "4.x.x",
-    "strapi": "3.0.0-alpha.8",
-    "strapi-mongoose": "3.0.0-alpha.8"
+    "strapi": "3.0.0-alpha.12.6",
+    "strapi-mongoose": "3.0.0-alpha.12.6"
   },
   "author": {
-    "name": "pierreburgy",
+    "name": "A Strapi developer",
     "email": "",
     "url": ""
   },
   "maintainers": [
     {
-      "name": "pierreburgy",
+      "name": "A Strapi developer",
       "email": "",
       "url": ""
     }
   ],
   "strapi": {
-    "uuid": "4eb04abf-6357-4e18-9a49-2e27fe879bf6"
+    "uuid": "fb9a032c-a540-48c4-9ec0-ce7dbcaa9d2e"
   },
   "engines": {
-    "node": ">= 7.0.0",
-    "npm": ">= 3.0.0"
+    "node": ">= 9.0.0",
+    "npm": ">= 5.0.0"
   },
   "license": "MIT"
 }
