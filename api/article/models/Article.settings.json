@@ -5,6 +5,9 @@
     "name": "article",
     "description": ""
   },
+  "options": {
+    "timestamps": true
+  },
   "attributes": {
     "title": {
       "type": "string"

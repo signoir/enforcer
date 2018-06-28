@@ -10,6 +10,14 @@
     },
     {
       "method": "GET",
+      "path": "/article/count",
+      "handler": "Article.count",
+      "config": {
+        "policies": []
+      }
+    },
+    {
+      "method": "GET",
       "path": "/article/:_id",
       "handler": "Article.findOne",
       "config": {

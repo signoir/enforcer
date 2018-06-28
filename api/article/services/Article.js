@@ -18,15 +18,21 @@ module.exports = {
    */
 
   fetchAll: (params) => {
-    const convertedParams = strapi.utils.models.convertParams('article', params);
+    // Convert `params` object to filters compatible with Mongo.
+    const filters = strapi.utils.models.convertParams('article', params);
+    // Select field to populate.
+    const populate = Article.associations
+      .filter(ast => ast.autoPopulate !== false)
+      .map(ast => ast.alias)
+      .join(' ');
 
     return Article
       .find()
-      .where(convertedParams.where)
-      .sort(convertedParams.sort)
-      .skip(convertedParams.start)
-      .limit(convertedParams.limit)
-      .populate(_.keys(_.groupBy(_.reject(strapi.models.article.associations, {autoPopulate: false}), 'alias')).join(' '));
+      .where(filters.where)
+      .sort(filters.sort)
+      .skip(filters.start)
+      .limit(filters.limit)
+      .populate(populate);
   },
 
   /**
@@ -36,9 +42,30 @@ module.exports = {
    */
 
   fetch: (params) => {
+    // Select field to populate.
+    const populate = Article.associations
+      .filter(ast => ast.autoPopulate !== false)
+      .map(ast => ast.alias)
+      .join(' ');
+
     return Article
       .findOne(_.pick(params, _.keys(Article.schema.paths)))
-      .populate(_.keys(_.groupBy(_.reject(strapi.models.article.associations, {autoPopulate: false}), 'alias')).join(' '));
+      .populate(populate);
+  },
+
+  /**
+   * Promise to count articles.
+   *
+   * @return {Promise}
+   */
+
+  count: (params) => {
+    // Convert `params` object to filters compatible with Mongo.
+    const filters = strapi.utils.models.convertParams('article', params);
+
+    return Article
+      .count()
+      .where(filters.where);
   },
 
   /**
@@ -48,9 +75,15 @@ module.exports = {
    */
 
   add: async (values) => {
-    const data = await Article.create(_.omit(values, _.keys(_.groupBy(strapi.models.article.associations, 'alias'))));
-    await strapi.hook.mongoose.manageRelations('article', _.merge(_.clone(data), { values }));
-    return data;
+    // Extract values related to relational data.
+    const relations = _.pick(values, Article.associations.map(ast => ast.alias));
+    const data = _.omit(values, Article.associations.map(ast => ast.alias));
+
+    // Create entry with no-relational data.
+    const entry = await Article.create(data);
+
+    // Create relational data and return the entry.
+    return Article.updateRelations({ id: entry.id, values: relations });
   },
 
   /**
@@ -60,11 +93,15 @@ module.exports = {
    */
 
   edit: async (params, values) => {
-    // Note: The current method will return the full response of Mongo.
-    // To get the updated object, you have to execute the `findOne()` method
-    // or use the `findOneOrUpdate()` method with `{ new:true }` option.
-    await strapi.hook.mongoose.manageRelations('article', _.merge(_.clone(params), { values }));
-    return Article.update(params, values, { multi: true });
+    // Extract values related to relational data.
+    const relations = _.pick(values, Article.associations.map(a => a.alias));
+    const data = _.omit(values, Article.associations.map(a => a.alias));
+
+    // Update entry with no-relational data.
+    const entry = await Article.update(params, data, { multi: true });
+
+    // Update relational data and return the entry.
+    return Article.updateRelations(Object.assign(params, { values: relations }));
   },
 
   /**
@@ -74,20 +111,35 @@ module.exports = {
    */
 
   remove: async params => {
+    // Select field to populate.
+    const populate = Article.associations
+      .filter(ast => ast.autoPopulate !== false)
+      .map(ast => ast.alias)
+      .join(' ');
+
     // Note: To get the full response of Mongo, use the `remove()` method
     // or add spent the parameter `{ passRawResult: true }` as second argument.
-    const data = await Article.findOneAndRemove(params, {})
-      .populate(_.keys(_.groupBy(_.reject(strapi.models.article.associations, {autoPopulate: false}), 'alias')).join(' '));
+    const data = await Article
+      .findOneAndRemove(params, {})
+      .populate(populate);
 
-    _.forEach(Article.associations, async association => {
-      const search = (_.endsWith(association.nature, 'One')) ? { [association.via]: data._id } : { [association.via]: { $in: [data._id] } };
-      const update = (_.endsWith(association.nature, 'One')) ? { [association.via]: null } : { $pull: { [association.via]: data._id } };
+    if (!data) {
+      return data;
+    }
 
-      await strapi.models[association.model || association.collection].update(
-        search,
-        update,
-        { multi: true });
-    });
+    await Promise.all(
+      Article.associations.map(async association => {
+        const search = _.endsWith(association.nature, 'One') || association.nature === 'oneToMany' ? { [association.via]: data._id } : { [association.via]: { $in: [data._id] } };
+        const update = _.endsWith(association.nature, 'One') || association.nature === 'oneToMany' ? { [association.via]: null } : { $pull: { [association.via]: data._id } };
+
+        // Retrieve model.
+        const model = association.plugin ?
+          strapi.plugins[association.plugin].models[association.model || association.collection] :
+          strapi.models[association.model || association.collection];
+
+        return model.update(search, update, { multi: true });
+      })
+    );
 
     return data;
   }
